@@ -1,0 +1,254 @@
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+    <title>Ajax file uploader</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu" crossorigin="anonymous">
+    <style>
+        body {
+            min-height: 100vh;
+        }
+
+        #dropZoneContainer {
+            padding: 5px;
+        }
+
+        #fileError {
+            color: red;
+        }
+
+        #dropZone {
+            border: 1px dashed rgb(0, 114, 198);
+            cursor: pointer;
+            text-align: center;
+            width: 400px;
+            height: 100px;
+        }
+
+            #dropZone .dropZoneText {
+                display: table-cell;
+                font-size: 14pt;
+                color: #808080;
+                vertical-align: middle;
+                width: 400px;
+                height: 100px;
+            }
+    </style>
+</head>
+
+<body style="border: 1px solid #000">
+    <div id="dropZoneContainer">
+        <div id="dropZone" ondrop="dropHandler(event);" ondragenter="dragEnterHandler(event)" ondragover="dragOverHandler(event);" ondragleave="dragLeaveHandler(event);" onclick="clickHandler(event);">
+            <span class="dropZoneText">Drag documents into this area or click "here"</span>
+        </div>
+        <div id="fileError" style="padding: 10px">
+            <input type="file" id="files" multiple style="display: none;" />
+        </div>
+        <form id="fileListForm">
+            <table class="table table-striped" id="fileList">
+                <tr>
+                    <th>File Name</th>
+                    <th>File Size</th>
+                    <th></th>
+                    <th></th>
+                </tr>
+            </table>
+        </form>
+        <button id="btnUpload" type="button" class="btn btn-success"><i class="glyphicon glyphicon-cloud-upload"></i> UploadFiles</button>
+    </div>
+    <script>
+        const progressBar =
+            `<div class="progress">
+                <div class="progress-bar" role="progressbar" aria-valuenow="2" aria-valuemin="0" aria-valuemax="100" style="min-width: 2em; width: 0%;">
+                    0%
+                </div>
+            </div>`
+        let listOfFiles = [];
+
+        function removeFile(fileIndex) {
+            const tpl = $("#fileNum-" + fileIndex);
+            tpl.fadeOut(function () {
+                listOfFiles = $.grep(listOfFiles, function (i) {
+                    return i.fileIndex != fileIndex;
+                });
+                tpl.remove();
+                if (listOfFiles.length == 0) {
+                    $("#btnUpload").hide();
+                }
+            });
+        }
+
+        function processFiles(files) {
+            const ALLOWED_FILE_TYPES = ["pdf", "jpeg", "jpg", "tiff", "tif", "xls", "xlsx", "docx", "txt"];
+            let filePattern = new RegExp("(\.|\/)(" + ALLOWED_FILE_TYPES.join("|") + ")", "i");
+            if (files.length + listOfFiles.length > 10) {
+                $("#fileError").html("Maximum 10 files");
+                return;
+            }
+            for (let i = 0; i < files.length; i++) {
+                if (!filePattern.test(files[i].name)) {
+                    $("#fileError").html(files[i].name.substring(files[i].name.lastIndexOf(".")) + " is not allowed. " + "Only following file types are allowed: " + ALLOWED_FILE_TYPES.join(","));
+                    return;
+                }
+                if (files[i].size > 10000000) { // 10 MB
+                    $("#fileError").html("Maximum file size is 10 MB");
+                    return;
+                }
+            }
+
+            // Pass validation
+            $("#fileError").html("");
+            const startIndex = listOfFiles.length === 0 ? 0 : listOfFiles[listOfFiles.length - 1].fileIndex + 1;
+            for (let i = 0; i < files.length; i++) {
+                const fileIndex = startIndex + i;
+                listOfFiles.push({
+                    fileIndex: fileIndex,
+                    data: files[i]
+                });
+
+                var tpl = $('<tr id="fileNum-' + fileIndex + '" style="border-bottom 1px inset #e9e9e9;"><td>' + files[i].name + '</td><td>' + files[i].size.toLocaleString("en-US") + '</td><td><a href="javascript:void(0)" onclick="removeFile(' + fileIndex + ')">Remove</a></td><td>' + progressBar + '</td></tr>');
+                tpl.appendTo('#fileList');
+            }
+            if (listOfFiles.length > 0) {
+                $("#fileList").show();
+                $("#btnUpload").show();
+            }
+        }
+
+        const FileUploader = function (files) {
+            this.files = files;
+        };
+
+        FileUploader.prototype.getSize = function () {
+            return this.file.size;
+        };
+        FileUploader.prototype.upload = function () {
+            const self = this;
+            $("#btnUpload").hide();
+            this.files.forEach(function (file) {
+                const fileElement = $("#fileNum-" + file.fileIndex);
+                const formData = new FormData();
+
+                // add assoc key values, this will be posts values
+                formData.append("file", file.data, file.data.name);
+
+                $.ajax({
+                    type: "POST",
+                    url: 'https://localhost:44384/file/upload',
+                    xhr: function () {
+                        var xhr = $.ajaxSettings.xhr();
+                        if (xhr.upload) {
+                            xhr.upload.addEventListener('progress', self.progressHandling(file.fileIndex), true);
+                        }
+                        return xhr;
+                    },
+                    success: function (result) {
+                        if (result.Status === -1) {
+                            fileElement.find("td").last().html(result.Message);
+                        }
+                    },
+                    error: function (error) {
+                        console.log(error);
+                        fileElement.find("td").last().html("Upload failed.");
+                    },
+                    async: true,
+                    data: formData,
+                    cache: false,
+                    contentType: false,
+                    processData: false,
+                    timeout: 60000
+                });
+            });
+        };
+
+        FileUploader.prototype.progressHandling = function (index) {
+            const self = this;
+            return function (event) {
+                var percent = 0;
+                var position = event.loaded || event.position;
+                var total = event.total;
+                if (event.lengthComputable) {
+                    percent = Math.ceil(position / total * 100);
+                }
+                console.log(self.files[index].data.name, "upload percentage: ", percent);
+                $("#fileList tr[id='fileNum-" + index + "'] .progress-bar").css("width", +percent + "%");
+                $("#fileList tr[id='fileNum-" + index + "'] .progress-bar").text(percent + "%");
+            }
+        };
+
+        function clickHandler(ev) {
+            $('#files').trigger("click");
+        }
+
+        function dropHandler(ev) {
+            console.log(ev);
+            $("#dropZone").css({
+                "border": "",
+                "background-color": ""
+            });
+            // Prevent default behavior (Prevent file from being opened)
+            ev.preventDefault();
+            ev.stopPropagation();
+            processFiles(ev.dataTransfer.files);
+        }
+
+        function dragOverHandler(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            ev.dataTransfer.dropEffect = "copy";
+            $("#dropZone").css({
+                "border": "5px dashed #2728a0",
+                "background-color": "#ccc"
+            });
+        }
+
+        function dragEnterHandler(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            console.log("Drag enter the drop zone");
+            ev.dataTransfer.dropEffect = "copy";
+        }
+
+        function dragLeaveHandler(ev) {
+            $("#dropZone").css({
+                "border": "",
+                "background-color": ""
+            });
+        }
+        $(document).ready(function () {
+            $("#btnUpload").hide();
+            $("#fileList").hide();
+            $("#files").on("change", function () {
+                processFiles(this.files);
+            });
+            $("#btnUpload").on("click", function (e) {
+                const uploader = new FileUploader(listOfFiles);
+                uploader.upload();
+            })
+        });
+        window.addEventListener("dragenter", function (e) {
+            console.log(e.target.id);
+            if (e.target.id != "dropZone" && e.target.id != "dropZoneText") {
+                e = e || event;
+                e.dataTransfer.dropEffect = "none";
+                e.preventDefault();
+            }
+        }, false);
+        window.addEventListener("dragover", function (e) {
+            if (e.target.id != "dropZone" && e.target.id != "dropZoneText") {
+                e = e || event;
+                e.dataTransfer.dropEffect = "none";
+                e.preventDefault();
+            }
+        }, false);
+        window.addEventListener("drop", function (e) {
+            if (e.target.id != "dropZone" && e.target.id != "dropZoneText") {
+                e = e || event;
+                e.preventDefault();
+            }
+        }, false);
+    </script>
+</body>
+
+</html>
